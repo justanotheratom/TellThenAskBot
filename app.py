@@ -1,10 +1,11 @@
 
 import os
+import asyncio
 from pathlib import Path
 import logging
-import time
 import flask
 import telebot
+from telebot.async_telebot import AsyncTeleBot
 import toml
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -18,7 +19,7 @@ app.config.from_file("config.toml", toml.load)
 logger = telebot.logger
 telebot.logger.setLevel(logging.INFO)
 
-bot = telebot.TeleBot(app.config['TELEGRAM_API_TOKEN'])
+bot = AsyncTeleBot(app.config['TELEGRAM_API_TOKEN'])
 
 WEBHOOK_URL_BASE = "https://%s" % (app.config['WEBHOOK_HOST'])
 WEBHOOK_URL_PATH = "/%s/" % (app.config['TELEGRAM_API_TOKEN'])
@@ -63,8 +64,8 @@ def webhook():
 #-------------------------------------------------------------------------------
 
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.send_message(
+async def send_welcome(message):
+    await bot.send_message(
         message.chat.id,
         (
             "Hello human. Tell me things you know you might forget. "
@@ -93,18 +94,18 @@ def callback_query(call):
         bot.answer_callback_query(call.id, "Good choice. We all make mistakes.")
 
 @bot.message_handler(commands=['deletealldata'])
-def send_welcome(message):
+async def delete_handler(message):
     markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.add(KeyboardButton('Yes, I confirm.'))
-    bot.send_message(
+    await bot.send_message(
         message.chat.id,
         "What?? Are you sure you want to delete all your data?",
         reply_markup=markup
     )
 
 @bot.message_handler(commands=['givefeedback'])
-def send_welcome(message):
-    bot.send_message(
+async def feedback(message):
+    await bot.send_message(
         message.chat.id,
         (
             "Me so happy. Thank you for feedback."
@@ -116,29 +117,29 @@ def send_welcome(message):
 #-------------------------------------------------------------------------------
 
 @bot.message_handler(content_types=['text'])
-def echo_message(message):
+async def echo_message(message):
     print('text')
-    bot.reply_to(message, message.text)
+    await bot.reply_to(message, message.text)
 
 @bot.message_handler(content_types=['voice'])
-def audio_sink(message):
-    bot.send_message(
+async def audio_sink(message):
+    await bot.send_message(
         message.chat.id,
         transcribe(message.voice.file_id))
 
+@bot.message_handler(func=lambda message: True)
+async def echo_message(message):
+    await bot.reply_to(message, message.text)
+
 #-------------------------------------------------------------------------------
 
-# Remove webhook, sometimes the set_webhook fails if one was already set.
-bot.remove_webhook()
-
-time.sleep(0.1)
-
-# Set webhook
-bot.set_webhook(url=WEBHOOK_URL_BASE + WEBHOOK_URL_PATH)
-
-# Start flask server
-app.run(host=app.config['WEBHOOK_LISTEN'],
-        port=app.config['WEBHOOK_PORT'],
-        ssl_context=(app.config['WEBHOOK_SSL_CERT'], app.config['WEBHOOK_SSL_PRIV']))
+asyncio.run(bot.run_webhooks(
+    listen= app.config['WEBHOOK_LISTEN'],
+    port= app.config['WEBHOOK_PORT'],
+    url_path= WEBHOOK_URL_PATH,
+    certificate= app.config['WEBHOOK_SSL_CERT'],
+    certificate_key= app.config['WEBHOOK_SSL_PRIV'],
+    webhook_url= WEBHOOK_URL_BASE + WEBHOOK_URL_PATH
+))
 
 #-------------------------------------------------------------------------------
