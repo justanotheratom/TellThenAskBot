@@ -1,4 +1,6 @@
 
+import os
+from pathlib import Path
 import logging
 import time
 import flask
@@ -6,6 +8,7 @@ import telebot
 import toml
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+import replicate
 
 #-------------------------------------------------------------------------------
 
@@ -15,10 +18,27 @@ app.config.from_file("config.toml", toml.load)
 logger = telebot.logger
 telebot.logger.setLevel(logging.INFO)
 
-bot = telebot.TeleBot(app.config['API_TOKEN'])
+bot = telebot.TeleBot(app.config['TELEGRAM_API_TOKEN'])
 
 WEBHOOK_URL_BASE = "https://%s" % (app.config['WEBHOOK_HOST'])
-WEBHOOK_URL_PATH = "/%s/" % (app.config['API_TOKEN'])
+WEBHOOK_URL_PATH = "/%s/" % (app.config['TELEGRAM_API_TOKEN'])
+
+os.environ['REPLICATE_API_TOKEN'] = app.config['REPLICATE_API_TOKEN']
+
+#-------------------------------------------------------------------------------
+# HELPERS
+#-------------------------------------------------------------------------------
+
+def transcribe(file_id):
+    file_info = bot.get_file(file_id)
+    file_content = bot.download_file(file_info.file_path)
+    f = open('foo.ogg', 'w+b')
+    f.write(file_content)
+    f.close()
+    model = replicate.models.get("openai/whisper")
+    version = model.versions.get("089ea17a12d0b9fc2f81d620cc6e686de7a156007830789bf186392728ac25e8")
+    result = version.predict(audio=Path('foo.ogg'))
+    return result['transcription']
 
 #-------------------------------------------------------------------------------
 # ROUTES
@@ -102,7 +122,9 @@ def echo_message(message):
 
 @bot.message_handler(content_types=['voice'])
 def audio_sink(message):
-    bot.send_message(message.chat.id, "I don't understand audio.")
+    bot.send_message(
+        message.chat.id,
+        transcribe(message.voice.file_id))
 
 #-------------------------------------------------------------------------------
 
