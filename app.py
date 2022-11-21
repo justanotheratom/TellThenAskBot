@@ -136,9 +136,9 @@ time.sleep(0.1)
 # Set webhook
 bot.set_webhook(url=WEBHOOK_URL_BASE + WEBHOOK_URL_PATH)
 
-#-------------------------------------------------------------------------------
-
 # Start flask server
 app.run(host=app.config['WEBHOOK_LISTEN'],
         port=app.config['WEBHOOK_PORT'],
         ssl_context=(app.config['WEBHOOK_SSL_CERT'], app.config['WEBHOOK_SSL_PRIV']))
+
+#-------------------------------------------------------------------------------
