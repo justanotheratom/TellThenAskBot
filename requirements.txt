@@ -2,3 +2,4 @@ flask
 pyTelegramBotAPI
 toml
 replicate
+dataclass-csv
