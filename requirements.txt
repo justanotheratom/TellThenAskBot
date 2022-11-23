@@ -3,3 +3,4 @@ pyTelegramBotAPI
 toml
 replicate
 dataclass-csv
+openai

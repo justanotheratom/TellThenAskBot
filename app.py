@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 import tempfile
 from dataclass_csv import DataclassReader, DataclassWriter
+import openai
 
 #-------------------------------------------------------------------------------
 
@@ -29,18 +30,19 @@ WEBHOOK_URL_BASE = "https://%s" % (app.config['WEBHOOK_HOST'])
 WEBHOOK_URL_PATH = "/%s/" % (app.config['TELEGRAM_API_TOKEN'])
 
 os.environ['REPLICATE_API_TOKEN'] = app.config['REPLICATE_API_TOKEN']
+openai.api_key = app.config['OPENAI_API_TOKEN']
 
 #-------------------------------------------------------------------------------
 
 @dataclass
 class JournalEntry:
-    timestamp: datetime
+    timestamp: int
     text: str
     voice_file_id: str
 
 @dataclass
 class QAEntry:
-    timestamp: datetime
+    timestamp: int
     question: str
     answer: str
     voice_file_id: str
@@ -96,16 +98,18 @@ def transcribe(file_id):
             f.write(file_content)
         model = replicate.models.get("openai/whisper")
         version = model.versions.get("089ea17a12d0b9fc2f81d620cc6e686de7a156007830789bf186392728ac25e8")
+        print("Transcribing...")
         result = version.predict(audio=tmp_path, model='large')
+        print("Transcription complete.")
         return result['transcription']
 
 def send_response(
-    message,
+    user_id,
     response,
     markup=telebot.types.ReplyKeyboardRemove(selective=False)
     ):
     bot.send_message(
-        message.chat.id,
+        user_id,
         response,
         reply_markup=markup
     )
@@ -113,8 +117,41 @@ def send_response(
 def is_question(text):
     return text.endswith('?')
 
+def generate_answer(journal, question):
+    prefix = \
+        "Answer the question as truthfully as possible using the provided context, " + \
+        "and if the answer is not contained within the text below, say \"I don't know.\"" + \
+        "\n" + \
+        "\n" + \
+        "Context:" + \
+        "\n" + \
+        "\n"
+
+    context = "\n".join([entry.text for entry in journal]) + \
+        "\n" + \
+        "\n"
+
+    q = "Q: " + question
+
+    suffix = "\n" + "A: "
+
+    prompt = prefix + context + q + suffix
+
+    return openai.Completion.create(
+        prompt=prompt,
+        temperature=0,
+        max_tokens=10,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+        model="text-davinci-002"
+    )["choices"][0]["text"].strip(" \n")
+
 def process_question(user_id, qa_entry):
     hydrate_user_data(user_id)
+
+    qa_entry.answer = generate_answer(userdata[user_id].journal, qa_entry.question)
+
     userdata[user_id].qa.append(qa_entry)
     os.makedirs(user_data_directory(user_id), exist_ok=True)
     qa_file = user_qa_file(user_id)
@@ -125,6 +162,8 @@ def process_question(user_id, qa_entry):
     with open(qa_file, 'a+') as f:
         w = DataclassWriter(f, [qa_entry], QAEntry, delimiter='\t')
         w.write(skip_header=True)
+
+    send_response(user_id, qa_entry.answer)
 
 def process_journal_entry(user_id, journal_entry):
     hydrate_user_data(user_id)
@@ -140,7 +179,6 @@ def process_journal_entry(user_id, journal_entry):
         w.write(skip_header=True)
 
 def process_text(user_id, timestamp, text, voice_file_id): 
-    timestamp = datetime.fromtimestamp(timestamp),
     if (is_question(text)):
         process_question(user_id, QAEntry(timestamp, text, None, voice_file_id))
     else:
@@ -171,7 +209,7 @@ def webhook():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     send_response(
-        message,
+        message.from_user.id,
         (
             "Hello human. Tell me things you know you might forget. "
             "Then later, ask me questions to refresh your memory.\n\n"
@@ -202,7 +240,7 @@ def send_welcome(message):
     markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.add(KeyboardButton('Yes, I confirm.'))
     send_response(
-        message,
+        message.from_user.id,
         "What?? Are you sure you want to delete all your data?",
         markup
     )
@@ -210,7 +248,7 @@ def send_welcome(message):
 @bot.message_handler(commands=['givefeedback'])
 def send_welcome(message):
     send_response(
-        message,
+        message.from_user.id,
         (
             "Me so happy. Thank you for feedback."
         )
@@ -226,20 +264,20 @@ def text_sink(message):
         message.from_user.id,
         message.date,
         message.text,
-        None
+        "None"
     )
 
 @bot.message_handler(content_types=['voice'])
 def audio_sink(message):
     voice_file_id = message.voice.file_id
     text = transcribe(voice_file_id)
+    send_response(message.from_user.id, text)
     process_text(
         message.from_user.id,
         message.date,
         text,
         voice_file_id
     )
-    send_response( message, text)
 
 #-------------------------------------------------------------------------------
 
