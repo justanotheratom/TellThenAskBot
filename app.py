@@ -96,11 +96,11 @@ def transcribe(file_id):
         tmp_path: Path = Path(tmp_dir) / Path('foo.ogg')
         with open(tmp_path, "w+b") as f:
             f.write(file_content)
-        model = replicate.models.get("openai/whisper")
-        version = model.versions.get("089ea17a12d0b9fc2f81d620cc6e686de7a156007830789bf186392728ac25e8")
-        print("Transcribing...")
+        model = replicate.models.get(app.config['REPLICATE_MODEL_NAME'])
+        version = model.versions.get(app.config['REPLICATE_MODEL_VERSION'])
+        #print("Transcribing...")
         result = version.predict(audio=tmp_path, model='large')
-        print("Transcription complete.")
+        #print("Transcription complete.")
         return result['transcription']
 
 def send_response(
@@ -137,15 +137,19 @@ def generate_answer(journal, question):
 
     prompt = prefix + context + q + suffix
 
-    return openai.Completion.create(
+    #print("Completing...")
+    completion = openai.Completion.create(
         prompt=prompt,
         temperature=0,
         max_tokens=10,
         top_p=1,
         frequency_penalty=0,
         presence_penalty=0,
-        model="text-davinci-002"
+        model=app.config['OPENAI_MODEL_NAME']
     )["choices"][0]["text"].strip(" \n")
+    #print("Completion complete.")
+
+    return completion
 
 def process_question(user_id, qa_entry):
     hydrate_user_data(user_id)
