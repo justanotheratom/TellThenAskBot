@@ -49,8 +49,8 @@ class QAEntry:
 
 @dataclass
 class UserData:
-    journal: list
-    qa: list
+    journal: list[JournalEntry]
+    qa: list[QAEntry]
 
 userdata = {}
 
